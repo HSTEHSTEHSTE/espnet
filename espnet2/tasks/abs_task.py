@@ -1174,6 +1174,7 @@ class AbsTask(ABC):
             # - Derive the length and dimension of all input data
             # - Accumulate feats, square values, and the length for whitening
             logging.info(args)
+            # vars(args)['token_list'] = list(set(vars(args)['token_list']))
 
             if args.valid_batch_size is None:
                 args.valid_batch_size = args.batch_size
@@ -1232,6 +1233,7 @@ class AbsTask(ABC):
                 )
 
             # 7. Build iterator factories
+            vars(args)['batch_size'] = 16
             if args.multiple_iterator:
                 train_iter_factory = cls.build_multiple_iter_factory(
                     args=args,
@@ -1249,6 +1251,20 @@ class AbsTask(ABC):
                 distributed_option=distributed_option,
                 mode="valid",
             )
+
+            # temporary cl iter factory
+
+            # # With CL
+            # cl_iter_factory = cls.build_iter_factory(
+            #     args=args,
+            #     distributed_option=distributed_option,
+            #     mode="valid",
+            #     num_batches = 1
+            # )
+
+            # Without CL
+            cl_iter_factory = None
+
             if args.num_att_plot != 0:
                 plot_attention_iter_factory = cls.build_iter_factory(
                     args=args,
@@ -1308,6 +1324,7 @@ class AbsTask(ABC):
                 schedulers=schedulers,
                 train_iter_factory=train_iter_factory,
                 valid_iter_factory=valid_iter_factory,
+                cl_iter_factory=cl_iter_factory,
                 plot_attention_iter_factory=plot_attention_iter_factory,
                 trainer_options=trainer_options,
                 distributed_option=distributed_option,
@@ -1322,6 +1339,7 @@ class AbsTask(ABC):
         args: argparse.Namespace,
         distributed_option: DistributedOption,
         mode: str,
+        num_batches: int = None,
     ):
         if mode == "train":
             preprocess_fn = cls.build_preprocess_fn(args, train=True)
@@ -1334,7 +1352,7 @@ class AbsTask(ABC):
             max_cache_size = args.max_cache_size
             max_cache_fd = args.max_cache_fd
             distributed = distributed_option.distributed
-            num_batches = None
+            num_batches = num_batches
             num_iters_per_epoch = args.num_iters_per_epoch
             train = True
 
@@ -1363,7 +1381,7 @@ class AbsTask(ABC):
                 max_cache_size = args.valid_max_cache_size
             max_cache_fd = args.max_cache_fd
             distributed = distributed_option.distributed
-            num_batches = None
+            num_batches = num_batches
             num_iters_per_epoch = None
             train = False
 
@@ -1373,7 +1391,7 @@ class AbsTask(ABC):
             data_path_and_name_and_type = args.valid_data_path_and_name_and_type
             shape_files = args.valid_shape_file
             batch_type = "unsorted"
-            batch_size = 1
+            batch_size = 16
             batch_bins = 0
             num_batches = args.num_att_plot
             max_cache_fd = args.max_cache_fd
@@ -1409,6 +1427,7 @@ class AbsTask(ABC):
         distributed_option: DistributedOption,
         mode: str,
         kwargs: dict = None,
+        num_batches: int = None,
     ) -> AbsIterFactory:
         """Build a factory object of mini-batch iterator.
 
@@ -1435,7 +1454,7 @@ class AbsTask(ABC):
 
         """
         assert check_argument_types()
-        iter_options = cls.build_iter_options(args, distributed_option, mode)
+        iter_options = cls.build_iter_options(args, distributed_option, mode, num_batches=num_batches)
 
         # Overwrite iter_options if any kwargs is given
         if kwargs is not None:
@@ -1468,7 +1487,6 @@ class AbsTask(ABC):
         cls, args: argparse.Namespace, iter_options: IteratorOptions, mode: str
     ) -> AbsIterFactory:
         assert check_argument_types()
-
         dataset = ESPnetDataset(
             iter_options.data_path_and_name_and_type,
             float_dtype=args.train_dtype,

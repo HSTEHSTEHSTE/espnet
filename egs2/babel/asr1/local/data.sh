@@ -6,7 +6,7 @@
 . ./db.sh || exit 1;
 
 SECONDS=0
-
+BABEL=BABEL
 log() {
     local fname=${BASH_SOURCE[1]##*/}
     echo -e "$(date '+%Y-%m-%dT%H:%M:%S') (${fname}:${BASH_LINENO[0]}:${FUNCNAME[1]}) $*"
@@ -16,12 +16,12 @@ log() {
 langs="101 102 103 104 105 106 202 203 204 205 206 207 301 302 303 304 305 306 401 402 403"
 recog="107 201 307 404"
 
-for l in ${langs} ${recog}; do
-  if [ ! -e "${BABEL}_${l}" ]; then
-      log "Fill the value of '${BABEL}_${l}' of db.sh"
-      exit 1
-  fi
-done
+# for l in ${langs} ${recog}; do
+#   if [ ! -e "BABEL_${l}" ]; then
+#       log "Fill the value of '${BABEL}_${l}' of db.sh"
+#       exit 1
+#   fi
+# done
 
 # Set bash to 'debug' mode, it will exit on :
 # -e 'error', -u 'undefined variable', -o ... 'error in pipeline', -x 'print commands',

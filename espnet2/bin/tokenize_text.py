@@ -64,7 +64,7 @@ def field2slice(field: Optional[str]) -> slice:
 
 
 def tokenize(
-    input: str,
+    input: List[str],
     output: str,
     field: Optional[str],
     delimiter: Optional[str],
@@ -87,6 +87,8 @@ def tokenize(
         level=log_level,
         format="%(asctime)s (%(module)s:%(lineno)d) %(levelname)s: %(message)s",
     )
+    print("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+    print(input)
     if input == "-":
         fin = sys.stdin
     else:

@@ -69,7 +69,7 @@ ngram_exp=
 ngram_num=3
 
 # Language model related
-use_lm=true       # Use language model for ASR decoding.
+use_lm=false      # Use language model for ASR decoding.
 lm_tag=           # Suffix to the result dir for language model training.
 lm_exp=           # Specify the directory path for LM experiment.
                   # If this option is specified, lm_tag is ignored.
@@ -131,6 +131,8 @@ bpe_train_text=  # Text file path of bpe training set.
 lm_train_text=   # Text file path of language model training set.
 lm_dev_text=     # Text file path of language model development set.
 lm_test_text=    # Text file path of language model evaluation set.
+cl_train_sets=
+cl_test_sets=
 nlsyms_txt=none  # Non-linguistic symbol list if existing.
 cleaner=none     # Text cleaner.
 g2p=none         # g2p method (needed if token_type=phn).
@@ -287,6 +289,9 @@ fi
 # Use the text of the 1st evaldir if lm_test is not specified
 [ -z "${lm_test_text}" ] && lm_test_text="${data_feats}/${test_sets%% *}/text"
 
+cl_train_text="${data_feats}/${cl_train_sets}/text"
+cl_test_text="${data_feats}/${cl_test_sets}/text"
+
 # Check tokenization type
 if [ "${lang}" != noinfo ]; then
     token_listdir=data/${lang}_token_list
@@ -431,7 +436,6 @@ if [ -z "${inference_tag}" ]; then
 fi
 
 # ========================== Main stages start from here. ==========================
-
 if ! "${skip_data_prep}"; then
     if [ ${stage} -le 1 ] && [ ${stop_stage} -ge 1 ]; then
         log "Stage 1: Data preparation for data/${train_set}, data/${valid_set}, etc."
@@ -668,14 +672,14 @@ if ! "${skip_data_prep}"; then
             # 0 is reserved for CTC-blank for ASR and also used as ignore-index in the other task
             ${python} -m espnet2.bin.tokenize_text  \
                 --token_type "${token_type}" \
-                --input "${data_feats}/lm_train.txt" --output "${token_list}" ${_opts} \
+                --input "${(cl_train_text lm_train_text)}" --output "${token_list}" ${_opts} \
                 --field 2- \
                 --cleaner "${cleaner}" \
                 --g2p "${g2p}" \
                 --write_vocabulary true \
                 --add_symbol "${blank}:0" \
-                --add_symbol "${oov}:1" \
                 --add_symbol "${sos_eos}:-1"
+                # --add_symbol "${oov}:1" \
 
         else
             log "Error: not supported --token_type '${token_type}'"
@@ -694,8 +698,8 @@ if ! "${skip_data_prep}"; then
                 --write_vocabulary true \
                 --vocabulary_size "${word_vocab_size}" \
                 --add_symbol "${blank}:0" \
-                --add_symbol "${oov}:1" \
                 --add_symbol "${sos_eos}:-1"
+                # --add_symbol "${oov}:1" \
         fi
 
     fi

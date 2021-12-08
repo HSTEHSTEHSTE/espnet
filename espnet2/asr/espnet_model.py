@@ -154,7 +154,7 @@ class ESPnetASRModel(AbsESPnetModel):
             loss_ctc, cer_ctc = None, None
         else:
             loss_ctc, cer_ctc = self._calc_ctc_loss(
-                encoder_out, encoder_out_lens, text, text_lengths
+                encoder_out, encoder_out_lens, text, text_lengths # this is line to care about
             )
 
         # 2c. RNN-T branch
@@ -164,7 +164,7 @@ class ESPnetASRModel(AbsESPnetModel):
         if self.ctc_weight == 0.0:
             loss = loss_att
         elif self.ctc_weight == 1.0:
-            loss = loss_ctc
+            loss = loss_ctc ## !!
         else:
             loss = self.ctc_weight * loss_ctc + (1 - self.ctc_weight) * loss_att
 

@@ -23,7 +23,8 @@ done
 all_langs=${all_langs%% }
 
 # Save top-level directory
-cwd=$(utils/make_absolute.sh `pwd`)
+#cwd=$(utils/make_absolute.sh `pwd`)
+cwd=`pwd`
 echo "Stage 0: Setup Language Specific Directories"
 
 echo " --------------------------------------------"
@@ -40,8 +41,8 @@ for l in ${all_langs}; do
     ln -sf $link .
   done
 
-  cp ${cwd}/cmd.sh .
-  cp ${cwd}/path.sh .
+  # cp ${cwd}/cmd.sh .
+  # cp ${cwd}/path.sh .
   sed -i 's/\.\.\/\.\.\/\.\./\.\.\/\.\.\/\.\.\/\.\.\/\.\./g' path.sh
   
   cd ${cwd}
