@@ -114,4 +114,6 @@ def load_pretrained_model(
     if ignore_init_mismatch:
         src_state = filter_state_dict(dst_state, src_state)
     dst_state.update(src_state)
+    for param in src_state:
+        print(param, src_state[param].shape, dst_state[param].shape)
     obj.load_state_dict(dst_state)

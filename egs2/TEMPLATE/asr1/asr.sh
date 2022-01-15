@@ -33,7 +33,7 @@ skip_upload_hf=true  # Skip uploading to hugging face stages.
 ngpu=1               # The number of gpus ("0" uses cpu, otherwise use gpu).
 num_nodes=1          # The number of nodes.
 nj=32                # The number of parallel jobs.
-inference_nj=32      # The number of parallel jobs in decoding.
+inference_nj=100     # The number of parallel jobs in decoding.
 gpu_inference=false  # Whether to perform gpu decoding.
 dumpdir=dump         # Directory to dump features.
 expdir=exp           # Directory to save experiments.
@@ -87,6 +87,7 @@ asr_tag=       # Suffix to the result dir for asr model training.
 asr_exp=       # Specify the directory path for ASR experiment.
                # If this option is specified, asr_tag is ignored.
 asr_stats_dir= # Specify the directory path for ASR statistics.
+cl_asr_stats_dir= # Specify the directory path for ASR statistics.
 asr_config=    # Config for asr model training.
 asr_args=      # Arguments for asr model training, e.g., "--max_epoch 10".
                # Note that it will overwrite args in asr config.
@@ -94,6 +95,8 @@ pretrained_model=              # Pretrained model to load
 ignore_init_mismatch=false      # Ignore initial mismatch
 feats_normalize=global_mvn # Normalizaton layer type.
 num_splits_asr=1           # Number of splitting for lm corpus.
+cl_type=
+resume=true
 
 # Upload model related
 hf_repo=
@@ -115,7 +118,7 @@ inference_args=   # Arguments for decoding, e.g., "--lm_weight 0.1".
                   # Note that it will overwrite args in inference config.
 inference_lm=valid.loss.ave.pth       # Language model path for decoding.
 inference_ngram=${ngram_num}gram.bin
-inference_asr_model=valid.acc.ave.pth # ASR model path for decoding.
+inference_asr_model=valid.loss.ave.pth # ASR model path for decoding.
                                       # e.g.
                                       # inference_asr_model=train.loss.best.pth
                                       # inference_asr_model=3epoch.pth
@@ -129,9 +132,11 @@ valid_set=       # Name of validation set used for monitoring/tuning network tra
 test_sets=       # Names of test sets. Multiple items (e.g., both dev and eval sets) can be specified.
 bpe_train_text=  # Text file path of bpe training set.
 lm_train_text=   # Text file path of language model training set.
+cl_lm_train_text=
 lm_dev_text=     # Text file path of language model development set.
 lm_test_text=    # Text file path of language model evaluation set.
 cl_train_sets=
+cl_valid_sets=
 cl_test_sets=
 nlsyms_txt=none  # Non-linguistic symbol list if existing.
 cleaner=none     # Text cleaner.
@@ -290,6 +295,7 @@ fi
 [ -z "${lm_test_text}" ] && lm_test_text="${data_feats}/${test_sets%% *}/text"
 
 cl_train_text="${data_feats}/${cl_train_sets}/text"
+cl_dev_text="${data_feats}/${cl_valid_sets}/text"
 cl_test_text="${data_feats}/${cl_test_sets}/text"
 
 # Check tokenization type
@@ -477,8 +483,8 @@ if ! "${skip_data_prep}"; then
             # If nothing is need, then format_wav_scp.sh does nothing:
             # i.e. the input file format and rate is same as the output.
 
-            for dset in "${train_set}" "${valid_set}" ${test_sets}; do
-                if [ "${dset}" = "${train_set}" ] || [ "${dset}" = "${valid_set}" ]; then
+            for dset in "${train_set}" "${valid_set}" "${cl_train_sets}" "${cl_valid_sets}" "${test_sets}" "${cl_test_sets}"; do
+                if [ "${dset}" = "${train_set}" ] || [ "${dset}" = "${valid_set}" ] || [ "${dset}" = "${cl_train_sets}" ] || [ "${dset}" = "${cl_valid_sets}" ]; then
                     _suf="/org"
                 else
                     _suf=""
@@ -572,7 +578,8 @@ if ! "${skip_data_prep}"; then
         log "Stage 4: Remove long/short data: ${data_feats}/org -> ${data_feats}"
 
         # NOTE(kamo): Not applying to test_sets to keep original data
-        for dset in "${train_set}" "${valid_set}"; do
+        for dset in "${train_set}" "${valid_set}" "${cl_train_sets}" "${cl_valid_sets}"; do
+            log "${dset}"
 
             # Copy data dir
             utils/copy_data_dir.sh --validate_opts --non-print "${data_feats}/org/${dset}" "${data_feats}/${dset}"
@@ -629,84 +636,84 @@ if ! "${skip_data_prep}"; then
 
         # shellcheck disable=SC2002
         cat ${lm_train_text} | awk ' { if( NF != 1 ) print $0; } ' > "${data_feats}/lm_train.txt"
+        cat ${cl_lm_train_text} | awk ' { if( NF != 1 ) print $0; } ' > "${data_feats}/cl_lm_train.txt"
     fi
 
-
-    if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
-        if [ "${token_type}" = bpe ]; then
-            log "Stage 5: Generate token_list from ${bpe_train_text} using BPE"
-
-            mkdir -p "${bpedir}"
-            # shellcheck disable=SC2002
-            cat ${bpe_train_text} | cut -f 2- -d" "  > "${bpedir}"/train.txt
-
-            if [ -n "${bpe_nlsyms}" ]; then
-                _opts_spm="--user_defined_symbols=${bpe_nlsyms}"
-            else
-                _opts_spm=""
-            fi
-
-            spm_train \
-                --input="${bpedir}"/train.txt \
-                --vocab_size="${nbpe}" \
-                --model_type="${bpemode}" \
-                --model_prefix="${bpeprefix}" \
-                --character_coverage=${bpe_char_cover} \
-                --input_sentence_size="${bpe_input_sentence_size}" \
-                ${_opts_spm}
-
-            {
-            echo "${blank}"
-            echo "${oov}"
-            # Remove <unk>, <s>, </s> from the vocabulary
-            <"${bpeprefix}".vocab awk '{ if( NR != 1 && NR != 2 && NR != 3 ){ print $1; } }'
-            echo "${sos_eos}"
-            } > "${token_list}"
-
-        elif [ "${token_type}" = char ] || [ "${token_type}" = word ]; then
-            log "Stage 5: Generate character level token_list from ${lm_train_text}"
-
-            _opts="--non_linguistic_symbols ${nlsyms_txt}"
-
-            # The first symbol in token_list must be "<blank>" and the last must be also sos/eos:
-            # 0 is reserved for CTC-blank for ASR and also used as ignore-index in the other task
-            ${python} -m espnet2.bin.tokenize_text  \
-                --token_type "${token_type}" \
-                --input "${(cl_train_text lm_train_text)}" --output "${token_list}" ${_opts} \
-                --field 2- \
-                --cleaner "${cleaner}" \
-                --g2p "${g2p}" \
-                --write_vocabulary true \
-                --add_symbol "${blank}:0" \
-                --add_symbol "${sos_eos}:-1"
-                # --add_symbol "${oov}:1" \
-
-        else
-            log "Error: not supported --token_type '${token_type}'"
-            exit 2
-        fi
-
-        # Create word-list for word-LM training
-        if ${use_word_lm} && [ "${token_type}" != word ]; then
-            log "Generate word level token_list from ${data_feats}/lm_train.txt"
-            ${python} -m espnet2.bin.tokenize_text \
-                --token_type word \
-                --input "${data_feats}/lm_train.txt" --output "${lm_token_list}" \
-                --field 2- \
-                --cleaner "${cleaner}" \
-                --g2p "${g2p}" \
-                --write_vocabulary true \
-                --vocabulary_size "${word_vocab_size}" \
-                --add_symbol "${blank}:0" \
-                --add_symbol "${sos_eos}:-1"
-                # --add_symbol "${oov}:1" \
-        fi
-
-    fi
 else
     log "Skip the stages for data preparation"
 fi
 
+
+if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
+    if [ "${token_type}" = bpe ]; then
+        log "Stage 5: Generate token_list from ${bpe_train_text} using BPE"
+
+        mkdir -p "${bpedir}"
+        # shellcheck disable=SC2002
+        cat ${bpe_train_text} | cut -f 2- -d" "  > "${bpedir}"/train.txt
+
+        if [ -n "${bpe_nlsyms}" ]; then
+            _opts_spm="--user_defined_symbols=${bpe_nlsyms}"
+        else
+            _opts_spm=""
+        fi
+
+        spm_train \
+            --input="${bpedir}"/train.txt \
+            --vocab_size="${nbpe}" \
+            --model_type="${bpemode}" \
+            --model_prefix="${bpeprefix}" \
+            --character_coverage=${bpe_char_cover} \
+            --input_sentence_size="${bpe_input_sentence_size}" \
+            ${_opts_spm}
+
+        {
+        echo "${blank}"
+        echo "${oov}"
+        # Remove <unk>, <s>, </s> from the vocabulary
+        <"${bpeprefix}".vocab awk '{ if( NR != 1 && NR != 2 && NR != 3 ){ print $1; } }'
+        echo "${sos_eos}"
+        } > "${token_list}"
+
+    elif [ "${token_type}" = char ] || [ "${token_type}" = word ]; then
+        log "Stage 5: Generate character level token_list from ${lm_train_text}"
+
+        _opts="--non_linguistic_symbols ${nlsyms_txt}"
+        # The first symbol in token_list must be "<blank>" and the last must be also sos/eos:
+        # 0 is reserved for CTC-blank for ASR and also used as ignore-index in the other task
+        ${python} -m espnet2.bin.tokenize_text  \
+            --token_type "${token_type}" \
+            --input "${lm_train_text}" --cl_input "${cl_train_text}" --output "${token_list}" ${_opts} \
+            --field 2- \
+            --cleaner "${cleaner}" \
+            --g2p "${g2p}" \
+            --write_vocabulary true \
+            --add_symbol "${blank}:0" \
+            --add_symbol "${sos_eos}:-1"
+            # --add_symbol "${oov}:1" \
+
+    else
+        log "Error: not supported --token_type '${token_type}'"
+        exit 2
+    fi
+
+    # Create word-list for word-LM training
+    if ${use_word_lm} && [ "${token_type}" != word ]; then
+        log "Generate word level token_list from ${data_feats}/lm_train.txt"
+        ${python} -m espnet2.bin.tokenize_text \
+            --token_type word \
+            --input "${data_feats}/lm_train.txt" --output "${lm_token_list}" \
+            --field 2- \
+            --cleaner "${cleaner}" \
+            --g2p "${g2p}" \
+            --write_vocabulary true \
+            --vocabulary_size "${word_vocab_size}" \
+            --add_symbol "${blank}:0" \
+            --add_symbol "${sos_eos}:-1"
+            # --add_symbol "${oov}:1" \
+    fi
+
+fi
 
 # ========================== Data preparation is done here. ==========================
 
@@ -895,8 +902,11 @@ if ! "${skip_train}"; then
     if [ ${stage} -le 9 ] && [ ${stop_stage} -ge 9 ]; then
         if "${use_ngram}"; then
             log "Stage 9: Ngram Training: train_set=${data_feats}/lm_train.txt"
-            cut -f 2 -d " " ${data_feats}/lm_train.txt | lmplz -S "20%" --discount_fallback -o ${ngram_num} - >${ngram_exp}/${ngram_num}gram.arpa
-            build_binary -s ${ngram_exp}/${ngram_num}gram.arpa ${ngram_exp}/${ngram_num}gram.bin 
+            cut -f 2 -d " " ${data_feats}/lm_train.txt | ~/kenlm/build/bin/lmplz -S "20%" --discount_fallback --skip_symbols "<unk>" -o ${ngram_num} - >${ngram_exp}/${ngram_num}gram.arpa
+            ~/kenlm/build/bin/build_binary -s ${ngram_exp}/${ngram_num}gram.arpa ${ngram_exp}/${ngram_num}gram.bin 
+
+            cut -f 2 -d " " ${data_feats}/cl_lm_train.txt | ~/kenlm/build/bin/lmplz -S "20%" --discount_fallback --skip_symbols "<unk>" -o ${ngram_num} - >${ngram_exp}/${ngram_num}gram_cl.arpa
+            ~/kenlm/build/bin/build_binary -s ${ngram_exp}/${ngram_num}gram_cl.arpa ${ngram_exp}/${ngram_num}gram_cl.bin 
         else
             log "Stage 9: Skip ngram stages: use_ngram=${use_ngram}"
         fi
@@ -906,8 +916,11 @@ if ! "${skip_train}"; then
     if [ ${stage} -le 10 ] && [ ${stop_stage} -ge 10 ]; then
         _asr_train_dir="${data_feats}/${train_set}"
         _asr_valid_dir="${data_feats}/${valid_set}"
+        _asr_cl_train_dir="${data_feats}/${cl_train_sets}"
+        _asr_cl_valid_dir="${data_feats}/${cl_valid_sets}"
         log "Stage 10: ASR collect stats: train_set=${_asr_train_dir}, valid_set=${_asr_valid_dir}"
 
+        # generate shape files for main data
         _opts=
         if [ -n "${asr_config}" ]; then
             # To generate the config file: e.g.
@@ -978,8 +991,13 @@ if ! "${skip_train}"; then
                 --g2p "${g2p}" \
                 --train_data_path_and_name_and_type "${_asr_train_dir}/${_scp},speech,${_type}" \
                 --train_data_path_and_name_and_type "${_asr_train_dir}/text,text,text" \
+                --cl_type "${cl_type}" \
+                --cl_train_data_path_and_name_and_type "${_asr_cl_train_dir}/${_scp},speech,${_type}" \
+                --cl_train_data_path_and_name_and_type "${_asr_cl_train_dir}/text,text,text" \
                 --valid_data_path_and_name_and_type "${_asr_valid_dir}/${_scp},speech,${_type}" \
                 --valid_data_path_and_name_and_type "${_asr_valid_dir}/text,text,text" \
+                --cl_valid_data_path_and_name_and_type "${_asr_cl_valid_dir}/${_scp},speech,${_type}" \
+                --cl_valid_data_path_and_name_and_type "${_asr_cl_valid_dir}/text,text,text" \
                 --train_shape_file "${_logdir}/train.JOB.scp" \
                 --valid_shape_file "${_logdir}/valid.JOB.scp" \
                 --output_dir "${_logdir}/stats.JOB" \
@@ -1001,12 +1019,110 @@ if ! "${skip_train}"; then
         <"${asr_stats_dir}/valid/text_shape" \
             awk -v N="$(<${token_list} wc -l)" '{ print $0 "," N }' \
             >"${asr_stats_dir}/valid/text_shape.${token_type}"
+
+
+        # generate shape files for cl data
+        _opts=
+        if [ -n "${asr_config}" ]; then
+            # To generate the config file: e.g.
+            #   % python3 -m espnet2.bin.asr_train --print_config --optim adam
+            _opts+="--config ${asr_config} "
+        fi
+
+        _feats_type="$(<${_asr_cl_train_dir}/feats_type)"
+        if [ "${_feats_type}" = raw ]; then
+            _scp=wav.scp
+            if [[ "${audio_format}" == *ark* ]]; then
+                _type=kaldi_ark
+            else
+                # "sound" supports "wav", "flac", etc.
+                _type=sound
+            fi
+            _opts+="--frontend_conf fs=${fs} "
+        else
+            _scp=feats.scp
+            _type=kaldi_ark
+            _input_size="$(<${_asr_cl_train_dir}/feats_dim)"
+            _opts+="--input_size=${_input_size} "
+        fi
+
+        # 1. Split the key file
+        _logdir="${cl_asr_stats_dir}/cl_logdir"
+        mkdir -p "${_logdir}"
+
+        # Get the minimum number among ${nj} and the number lines of input files
+        _nj=$(min "${nj}" "$(<${_asr_cl_train_dir}/${_scp} wc -l)" "$(<${_asr_cl_valid_dir}/${_scp} wc -l)")
+
+        key_file="${_asr_cl_train_dir}/${_scp}"
+        split_scps=""
+        for n in $(seq "${_nj}"); do
+            split_scps+=" ${_logdir}/train.${n}.scp"
+        done
+        # shellcheck disable=SC2086
+        utils/split_scp.pl "${key_file}" ${split_scps}
+
+        key_file="${_asr_cl_valid_dir}/${_scp}"
+        split_scps=""
+        for n in $(seq "${_nj}"); do
+            split_scps+=" ${_logdir}/valid.${n}.scp"
+        done
+        # shellcheck disable=SC2086
+        utils/split_scp.pl "${key_file}" ${split_scps}
+
+        # 2. Generate run.sh
+        log "Generate '${cl_asr_stats_dir}/run.sh'. You can resume the process from stage 10 using this script"
+        mkdir -p "${cl_asr_stats_dir}"; echo "${run_args} --stage 10 \"\$@\"; exit \$?" > "${cl_asr_stats_dir}/run.sh"; chmod +x "${cl_asr_stats_dir}/run.sh"
+
+        # 3. Submit jobs
+        log "ASR collect-stats started... log: '${_logdir}/stats.*.log'"
+
+        # NOTE: --*_shape_file doesn't require length information if --batch_type=unsorted,
+        #       but it's used only for deciding the sample ids.
+
+        # shellcheck disable=SC2086
+        ${train_cmd} JOB=1:"${_nj}" "${_logdir}"/stats.JOB.log \
+            ${python} -m espnet2.bin.asr_train \
+                --collect_stats true \
+                --use_preprocessor true \
+                --bpemodel "${bpemodel}" \
+                --token_type "${token_type}" \
+                --token_list "${token_list}" \
+                --non_linguistic_symbols "${nlsyms_txt}" \
+                --cleaner "${cleaner}" \
+                --g2p "${g2p}" \
+                --train_data_path_and_name_and_type "${_asr_cl_train_dir}/${_scp},speech,${_type}" \
+                --train_data_path_and_name_and_type "${_asr_cl_train_dir}/text,text,text" \
+                --valid_data_path_and_name_and_type "${_asr_cl_valid_dir}/${_scp},speech,${_type}" \
+                --valid_data_path_and_name_and_type "${_asr_cl_valid_dir}/text,text,text" \
+                --train_shape_file "${_logdir}/train.JOB.scp" \
+                --valid_shape_file "${_logdir}/valid.JOB.scp" \
+                --output_dir "${_logdir}/stats.JOB" \
+                ${_opts} ${asr_args} || { cat "${_logdir}"/stats.1.log; exit 1; }
+
+        # 4. Aggregate shape files
+        _opts=
+        for i in $(seq "${_nj}"); do
+            _opts+="--input_dir ${_logdir}/stats.${i} "
+        done
+        # shellcheck disable=SC2086
+        ${python} -m espnet2.bin.aggregate_stats_dirs ${_opts} --output_dir "${cl_asr_stats_dir}"
+
+        # Append the num-tokens at the last dimensions. This is used for batch-bins count
+        <"${cl_asr_stats_dir}/train/text_shape" \
+            awk -v N="$(<${token_list} wc -l)" '{ print $0 "," N }' \
+            >"${cl_asr_stats_dir}/train/text_shape.${token_type}"
+
+        <"${cl_asr_stats_dir}/valid/text_shape" \
+            awk -v N="$(<${token_list} wc -l)" '{ print $0 "," N }' \
+            >"${cl_asr_stats_dir}/valid/text_shape.${token_type}"    
     fi
 
 
     if [ ${stage} -le 11 ] && [ ${stop_stage} -ge 11 ]; then
         _asr_train_dir="${data_feats}/${train_set}"
         _asr_valid_dir="${data_feats}/${valid_set}"
+        _asr_cl_train_dir="${data_feats}/${cl_train_sets}"
+        _asr_cl_valid_dir="${data_feats}/${cl_valid_sets}"
         log "Stage 11: ASR Training: train_set=${_asr_train_dir}, valid_set=${_asr_valid_dir}"
 
         _opts=
@@ -1072,6 +1188,8 @@ if ! "${skip_train}"; then
             _opts+="--train_data_path_and_name_and_type ${_asr_train_dir}/text,text,text "
             _opts+="--train_shape_file ${asr_stats_dir}/train/speech_shape "
             _opts+="--train_shape_file ${asr_stats_dir}/train/text_shape.${token_type} "
+            _opts+="--cl_train_shape_file ${cl_asr_stats_dir}/train/speech_shape "
+            _opts+="--cl_train_shape_file ${cl_asr_stats_dir}/train/text_shape.${token_type} "
         fi
 
         log "Generate '${asr_exp}/run.sh'. You can resume the process from stage 11 using this script"
@@ -1104,9 +1222,14 @@ if ! "${skip_train}"; then
                 --g2p "${g2p}" \
                 --valid_data_path_and_name_and_type "${_asr_valid_dir}/${_scp},speech,${_type}" \
                 --valid_data_path_and_name_and_type "${_asr_valid_dir}/text,text,text" \
+                --cl_type "${cl_type}" \
+                --cl_valid_data_path_and_name_and_type "${_asr_cl_valid_dir}/${_scp},speech,${_type}" \
+                --cl_valid_data_path_and_name_and_type "${_asr_cl_valid_dir}/text,text,text" \
                 --valid_shape_file "${asr_stats_dir}/valid/speech_shape" \
                 --valid_shape_file "${asr_stats_dir}/valid/text_shape.${token_type}" \
-                --resume true \
+                --cl_valid_shape_file "${cl_asr_stats_dir}/valid/speech_shape" \
+                --cl_valid_shape_file "${cl_asr_stats_dir}/valid/text_shape.${token_type}" \
+                --resume false \
                 --init_param ${pretrained_model} \
                 --ignore_init_mismatch ${ignore_init_mismatch} \
                 --fold_length "${_fold_length}" \

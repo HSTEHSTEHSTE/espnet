@@ -102,7 +102,7 @@ elif [ "${cmd_backend}" = jhu ]; then
 
     export train_cmd="queue.pl --mem 2G"
     export cuda_cmd="queue-freegpu.pl --mem 2G --gpu 1 --config conf/queue.conf"
-    export decode_cmd="queue.pl --mem 4G"
+    export decode_cmd="queue.pl --mem 4G -l 'hostname=!b03*'"
 
 else
     echo "$0: Error: Unknown cmd_backend=${cmd_backend}" 1>&2

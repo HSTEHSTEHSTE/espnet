@@ -41,8 +41,9 @@ for l in ${all_langs}; do
     ln -sf $link .
   done
 
-  # cp ${cwd}/cmd.sh .
-  # cp ${cwd}/path.sh .
+  printf '%s\n' "${cwd}"
+  cp ${cwd}/cmd.sh .
+  cp ${cwd}/path.sh .
   sed -i 's/\.\.\/\.\.\/\.\./\.\.\/\.\.\/\.\.\/\.\.\/\.\./g' path.sh
   
   cd ${cwd}

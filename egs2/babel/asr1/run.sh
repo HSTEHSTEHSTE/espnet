@@ -5,15 +5,24 @@ set -e
 set -u
 set -o pipefail
 
-train_set=train_cantonese
-valid_set=dev_cantonese
+# train_set=train_cantonese
+# valid_set=dev_cantonese
+# test_sets=eval_cantonese
+# cl_train_sets='train_assamese'
+# cl_valid_sets='dev_assamese'
+# cl_test_sets='eval_assamese'
+train_set=train_assamese
+valid_set=dev_assamese
+test_sets=eval_assamese
+cl_train_sets='train_cantonese'
+cl_valid_sets='dev_cantonese'
+cl_test_sets='eval_cantonese'
+
+
 
 langs="101 102 103 104 105 106 202 203 204 205 206 207 301 302 303 304 305 306 401 402 403"
 recog="107 201 307 404"
 
-test_sets=eval_cantonese
-cl_train_sets='train_assamese'
-cl_test_sets='eval_assamese'
 ##for l in ${recog}; do
  # test_sets="dev_${l} eval_${l} ${test_sets}"
 #done
@@ -21,13 +30,18 @@ cl_test_sets='eval_assamese'
 
 asr_config=conf/train_asr.yaml
 lm_config=conf/train_lm.yaml
-inference_config=conf/decode_asr.yaml
+inference_config=conf/decoder_asr.yaml
 
 nlsyms_txt=data/nlsym.txt
 
 
 # TODO(kamo): Derive language name from $langs and give it as --lang
 ./asr.sh \
+    --asr_stats_dir "exp_bengali/asr_stats_raw_car" \
+    --cl_asr_stats_dir "exp_bengali/cl_asr_stats_raw_car" \
+    --expdir "exp_bengali" \
+    --stage 3 \
+    --stop_stage 5 \
     --lang noinfo \
     --local_data_opts "--langs ${langs} --recog ${recog}" \
     --use_lm false \
@@ -41,5 +55,9 @@ nlsyms_txt=data/nlsym.txt
     --valid_set "${valid_set}" \
     --test_sets "${test_sets}" \
     --cl_train_sets "${cl_train_sets}" \
+    --cl_valid_sets "${cl_valid_sets}" \
     --cl_test_sets "${cl_test_sets}" \
-    # --lm_train_text "data/${train_set}/text" "$@"
+    --use_ngram true \
+    --lm_train_text "data/${train_set}/text" \
+    --cl_lm_train_text "data/${cl_train_sets}/text" \
+    --pretrained_model "/export/b13/xli/exp_2/asr_train_asr_raw_char/valid.loss.best.pth" "$@"

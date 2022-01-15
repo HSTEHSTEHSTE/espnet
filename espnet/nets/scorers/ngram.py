@@ -1,7 +1,7 @@
+#!/home/xli257/espnet/tools/conda/envs/espnet python3
 """Ngram lm implement."""
 
 from abc import ABC
-
 import kenlm
 import torch
 

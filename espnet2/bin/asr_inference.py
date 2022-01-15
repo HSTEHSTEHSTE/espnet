@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/home/xli257/espnet/tools/conda/envs/espnet python3
 import argparse
 import logging
 from pathlib import Path

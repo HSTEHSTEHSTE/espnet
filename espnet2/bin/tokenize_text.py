@@ -64,7 +64,8 @@ def field2slice(field: Optional[str]) -> slice:
 
 
 def tokenize(
-    input: List[str],
+    input: str,
+    cl_input: Optional[str],
     output: str,
     field: Optional[str],
     delimiter: Optional[str],
@@ -87,12 +88,11 @@ def tokenize(
         level=log_level,
         format="%(asctime)s (%(module)s:%(lineno)d) %(levelname)s: %(message)s",
     )
-    print("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
-    print(input)
     if input == "-":
         fin = sys.stdin
     else:
         fin = Path(input).open("r", encoding="utf-8")
+        fin1 = Path(cl_input).open("r", encoding="utf-8")
     if output == "-":
         fout = sys.stdout
     else:
@@ -134,6 +134,27 @@ def tokenize(
         else:
             for t in tokens:
                 counter[t] += 1
+
+    if input != "-":
+        for line in fin1:
+            line = line.rstrip()
+            if field is not None:
+                # e.g. field="2-"
+                # uttidA hello world!! -> hello world!!
+                tokens = line.split(delimiter)
+                tokens = tokens[field]
+                if delimiter is None:
+                    line = " ".join(tokens)
+                else:
+                    line = delimiter.join(tokens)
+
+            line = cleaner(line)
+            tokens = tokenizer.text2tokens(line)
+            if not write_vocabulary:
+                fout.write(" ".join(tokens) + "\n")
+            else:
+                for t in tokens:
+                    counter[t] += 1
 
     if not write_vocabulary:
         return
@@ -191,6 +212,9 @@ def get_parser() -> argparse.ArgumentParser:
 
     parser.add_argument(
         "--input", "-i", required=True, help="Input text. - indicates sys.stdin"
+    )
+    parser.add_argument(
+        "--cl_input", required=False, help="Input text. - indicates sys.stdin"
     )
     parser.add_argument(
         "--output", "-o", required=True, help="Output text. - indicates sys.stdout"
