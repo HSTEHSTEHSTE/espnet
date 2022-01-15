@@ -58,7 +58,8 @@ from espnet2.train.distributed_utils import get_node_rank
 from espnet2.train.distributed_utils import get_num_nodes
 from espnet2.train.distributed_utils import resolve_distributed_mode
 from espnet2.train.iterable_dataset import IterableESPnetDataset
-from espnet2.train.trainer import Trainer
+# from espnet2.train.trainer import Trainer
+from espnet2.train.trainer_cl import Trainer
 from espnet2.utils.build_dataclass import build_dataclass
 from espnet2.utils import config_argparse
 from espnet2.utils.get_default_kwargs import get_default_kwargs
@@ -487,8 +488,6 @@ class AbsTask(ABC):
             default=[
                 ("train", "loss", "min"),
                 ("valid", "loss", "min"),
-                ("train", "acc", "max"),
-                ("valid", "acc", "max"),
             ],
             help="The criterion used for judging of the best model. "
             'Give a pair referring the phase, "train" or "valid",'
@@ -684,7 +683,9 @@ class AbsTask(ABC):
         )
 
         group.add_argument("--train_shape_file", type=str, action="append", default=[])
+        group.add_argument("--cl_train_shape_file", type=str, action="append", default=[])
         group.add_argument("--valid_shape_file", type=str, action="append", default=[])
+        group.add_argument("--cl_valid_shape_file", type=str, action="append", default=[])
 
         group = parser.add_argument_group("Sequence iterator related")
         _batch_type_help = ""
@@ -776,10 +777,30 @@ class AbsTask(ABC):
             help=_data_path_and_name_and_type_help,
         )
         group.add_argument(
+            "--cl_train_data_path_and_name_and_type",
+            type=str2triple_str,
+            action="append",
+            default=[],
+            help=_data_path_and_name_and_type_help,
+        )
+        group.add_argument(
             "--valid_data_path_and_name_and_type",
             type=str2triple_str,
             action="append",
             default=[],
+        )
+        group.add_argument(
+            "--cl_valid_data_path_and_name_and_type",
+            type=str2triple_str,
+            action="append",
+            default=[],
+        )
+        group.add_argument(
+            "--cl_type",
+            type=str,
+            choices=['', 'ewc', 'wca', 'lwf'],
+            default='',
+            help="Continual learning type",
         )
         group.add_argument(
             "--allow_variable_data_keys",
@@ -1183,10 +1204,18 @@ class AbsTask(ABC):
                 train_key_file = args.train_shape_file[0]
             else:
                 train_key_file = None
+            if len(args.cl_train_shape_file) != 0:
+                cl_train_key_file = args.cl_train_shape_file[0]
+            else:
+                cl_train_key_file = None    
             if len(args.valid_shape_file) != 0:
                 valid_key_file = args.valid_shape_file[0]
             else:
                 valid_key_file = None
+            if len(args.cl_valid_shape_file) != 0:
+                cl_valid_key_file = args.cl_valid_shape_file[0]
+            else:
+                cl_valid_key_file = None
 
             collect_stats(
                 model=model,
@@ -1252,18 +1281,17 @@ class AbsTask(ABC):
                 mode="valid",
             )
 
-            # temporary cl iter factory
-
-            # # With CL
-            # cl_iter_factory = cls.build_iter_factory(
-            #     args=args,
-            #     distributed_option=distributed_option,
-            #     mode="valid",
-            #     num_batches = 1
-            # )
-
-            # Without CL
-            cl_iter_factory = None
+            if args.cl_type != '':
+                # With CL
+                cl_iter_factory = cls.build_cl_iter_factory(
+                    args=args,
+                    distributed_option=distributed_option,
+                    mode="valid",
+                    num_batches = 1
+                )
+            else:
+                # Without CL
+                cl_iter_factory = None
 
             if args.num_att_plot != 0:
                 plot_attention_iter_factory = cls.build_iter_factory(
@@ -1324,6 +1352,7 @@ class AbsTask(ABC):
                 schedulers=schedulers,
                 train_iter_factory=train_iter_factory,
                 valid_iter_factory=valid_iter_factory,
+                cl_type=args.cl_type,
                 cl_iter_factory=cl_iter_factory,
                 plot_attention_iter_factory=plot_attention_iter_factory,
                 trainer_options=trainer_options,
@@ -1421,6 +1450,93 @@ class AbsTask(ABC):
         )
 
     @classmethod
+    def cl_build_iter_options(
+        cls,
+        args: argparse.Namespace,
+        distributed_option: DistributedOption,
+        mode: str,
+        num_batches: int = None,
+    ):
+        if mode == "train":
+            preprocess_fn = cls.build_preprocess_fn(args, train=True)
+            collate_fn = cls.build_collate_fn(args, train=True)
+            data_path_and_name_and_type = args.cl_train_data_path_and_name_and_type
+            shape_files = args.cl_train_shape_file
+            batch_size = args.batch_size
+            batch_bins = args.batch_bins
+            batch_type = args.batch_type
+            max_cache_size = args.max_cache_size
+            max_cache_fd = args.max_cache_fd
+            distributed = distributed_option.distributed
+            num_batches = num_batches
+            num_iters_per_epoch = args.num_iters_per_epoch
+            train = True
+
+        elif mode == "valid":
+            preprocess_fn = cls.build_preprocess_fn(args, train=False)
+            collate_fn = cls.build_collate_fn(args, train=False)
+            data_path_and_name_and_type = args.cl_valid_data_path_and_name_and_type
+            shape_files = args.cl_valid_shape_file
+
+            if args.valid_batch_type is None:
+                batch_type = args.batch_type
+            else:
+                batch_type = args.valid_batch_type
+            if args.valid_batch_size is None:
+                batch_size = args.batch_size
+            else:
+                batch_size = args.valid_batch_size
+            if args.valid_batch_bins is None:
+                batch_bins = args.batch_bins
+            else:
+                batch_bins = args.valid_batch_bins
+            if args.valid_max_cache_size is None:
+                # Cache 5% of maximum size for validation loader
+                max_cache_size = 0.05 * args.max_cache_size
+            else:
+                max_cache_size = args.valid_max_cache_size
+            max_cache_fd = args.max_cache_fd
+            distributed = distributed_option.distributed
+            num_batches = num_batches
+            num_iters_per_epoch = None
+            train = False
+
+        elif mode == "plot_att":
+            preprocess_fn = cls.build_preprocess_fn(args, train=False)
+            collate_fn = cls.build_collate_fn(args, train=False)
+            data_path_and_name_and_type = args.valid_data_path_and_name_and_type
+            shape_files = args.valid_shape_file
+            batch_type = "unsorted"
+            batch_size = 16
+            batch_bins = 0
+            num_batches = args.num_att_plot
+            max_cache_fd = args.max_cache_fd
+            # num_att_plot should be a few sample ~ 3, so cache all data.
+            max_cache_size = np.inf if args.max_cache_size != 0.0 else 0.0
+            # always False because plot_attention performs on RANK0
+            distributed = False
+            num_iters_per_epoch = None
+            train = False
+        else:
+            raise NotImplementedError(f"mode={mode}")
+
+        return IteratorOptions(
+            preprocess_fn=preprocess_fn,
+            collate_fn=collate_fn,
+            data_path_and_name_and_type=data_path_and_name_and_type,
+            shape_files=shape_files,
+            batch_type=batch_type,
+            batch_size=batch_size,
+            batch_bins=batch_bins,
+            num_batches=num_batches,
+            max_cache_size=max_cache_size,
+            max_cache_fd=max_cache_fd,
+            distributed=distributed,
+            num_iters_per_epoch=num_iters_per_epoch,
+            train=train,
+        )
+
+    @classmethod
     def build_iter_factory(
         cls,
         args: argparse.Namespace,
@@ -1455,6 +1571,68 @@ class AbsTask(ABC):
         """
         assert check_argument_types()
         iter_options = cls.build_iter_options(args, distributed_option, mode, num_batches=num_batches)
+
+        # Overwrite iter_options if any kwargs is given
+        if kwargs is not None:
+            for k, v in kwargs.items():
+                setattr(iter_options, k, v)
+
+        if args.iterator_type == "sequence":
+            return cls.build_sequence_iter_factory(
+                args=args,
+                iter_options=iter_options,
+                mode=mode,
+            )
+        elif args.iterator_type == "chunk":
+            return cls.build_chunk_iter_factory(
+                args=args,
+                iter_options=iter_options,
+                mode=mode,
+            )
+        elif args.iterator_type == "task":
+            return cls.build_task_iter_factory(
+                args=args,
+                iter_options=iter_options,
+                mode=mode,
+            )
+        else:
+            raise RuntimeError(f"Not supported: iterator_type={args.iterator_type}")
+
+    @classmethod
+    def build_cl_iter_factory(
+        cls,
+        args: argparse.Namespace,
+        distributed_option: DistributedOption,
+        mode: str,
+        kwargs: dict = None,
+        num_batches: int = None,
+    ) -> AbsIterFactory:
+        """Build a factory object of mini-batch iterator.
+
+        This object is invoked at every epochs to build the iterator for each epoch
+        as following:
+
+        >>> iter_factory = cls.build_iter_factory(...)
+        >>> for epoch in range(1, max_epoch):
+        ...     for keys, batch in iter_fatory.build_iter(epoch):
+        ...         model(**batch)
+
+        The mini-batches for each epochs are fully controlled by this class.
+        Note that the random seed used for shuffling is decided as "seed + epoch" and
+        the generated mini-batches can be reproduces when resuming.
+
+        Note that the definition of "epoch" doesn't always indicate
+        to run out of the whole training corpus.
+        "--num_iters_per_epoch" option restricts the number of iterations for each epoch
+        and the rest of samples for the originally epoch are left for the next epoch.
+        e.g. If The number of mini-batches equals to 4, the following two are same:
+
+        - 1 epoch without "--num_iters_per_epoch"
+        - 4 epoch with "--num_iters_per_epoch" == 4
+
+        """
+        assert check_argument_types()
+        iter_options = cls.cl_build_iter_options(args, distributed_option, mode, num_batches=num_batches)
 
         # Overwrite iter_options if any kwargs is given
         if kwargs is not None:
