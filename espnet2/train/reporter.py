@@ -391,6 +391,7 @@ class Reporter:
             values = sorted(values, key=lambda x: x[1])
         else:
             values = sorted(values, key=lambda x: -x[1])
+        logging.warn(values)
         return values
 
     def sort_epochs(self, key: str, key2: str, mode: str) -> List[int]:

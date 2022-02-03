@@ -87,4 +87,5 @@ class CL(object):
             retval = self.model(**data)
             loss, stats, weight = retval
 
+        logging.warn(loss)
         return loss

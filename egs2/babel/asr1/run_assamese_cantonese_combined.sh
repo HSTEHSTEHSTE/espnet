@@ -5,14 +5,8 @@ set -e
 set -u
 set -o pipefail
 
-# train_set=train_cantonese
-# valid_set=dev_cantonese
-# test_sets=eval_cantonese
-# cl_train_sets='train_assamese'
-# cl_valid_sets='dev_assamese'
-# cl_test_sets='eval_assamese'
-train_set=train_assamese
-valid_set=dev_assamese
+train_set=train_assamese_cantonese
+valid_set=dev_assamese_cantonese
 test_sets=eval_cantonese
 cl_train_sets='train_cantonese'
 cl_valid_sets='dev_cantonese'
@@ -37,13 +31,13 @@ nlsyms_txt=data/nlsym.txt
 
 # TODO(kamo): Derive language name from $langs and give it as --lang
 ./asr.sh \
-    --asr_stats_dir "exp_assamese_cantonese_wca/asr_stats_raw_car" \
-    --cl_asr_stats_dir "exp_assamese_cantonese_wca/cl_asr_stats_raw_car" \
-    --expdir "exp_assamese_cantonese_wca" \
-    --dumpdir "dump_cantonese" \
-    --stage 11 \
-    --stop_stage 11 \
-    --lang assamese_cantonese \
+    --asr_stats_dir "exp_assamese_cantonese_combined/asr_stats_raw_car" \
+    --cl_asr_stats_dir "exp_assamese_cantonese_combined/cl_asr_stats_raw_car" \
+    --expdir "exp_assamese_cantonese_combined" \
+    --dumpdir "dump_assamese_cantonese_combined" \
+    --stage 12 \
+    --stop_stage 13 \
+    --lang assamese_cantonese_combined \
     --local_data_opts "--langs ${langs} --recog ${recog}" \
     --use_lm false \
     --lm_config "${lm_config}" \
@@ -58,9 +52,7 @@ nlsyms_txt=data/nlsym.txt
     --cl_train_sets "${cl_train_sets}" \
     --cl_valid_sets "${cl_valid_sets}" \
     --cl_test_sets "${cl_test_sets}" \
-    --cl_type "wca" \
     --resume false \
     --use_ngram true \
     --lm_train_text "data/${train_set}/text" \
-    --cl_lm_train_text "data/${cl_train_sets}/text" \
-    --pretrained_model "/home/xli257/espnet/egs2/babel/asr1/exp_cantonese/asr_train_asr_raw_assamese_cantonese_char/valid.loss.ave_10best.pth" "$@"
+    --cl_lm_train_text "data/${cl_train_sets}/text" "$@"

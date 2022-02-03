@@ -79,3 +79,9 @@ tools/speech_tools*
 tools/phonemizer*
 tools/py3mmseg
 tools/._*
+tools/anaconda/bin
+tools/anaconda/compiler_compat
+tools/anaconda/conda-meta
+tools/anaconda/condabin
+tools/anaconda/envs
+tools/anaconda/LICENSE.txt
