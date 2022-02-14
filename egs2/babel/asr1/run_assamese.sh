@@ -34,9 +34,9 @@ nlsyms_txt=data/nlsym.txt
     --asr_stats_dir "exp_assamese/asr_stats_raw_car" \
     --cl_asr_stats_dir "exp_assamese/cl_asr_stats_raw_car" \
     --expdir "exp_assamese" \
-    --stage 13 \
+    --stage 12 \
     --stop_stage 13 \
-    --lang noinfo \
+    --lang assamese \
     --local_data_opts "--langs ${langs} --recog ${recog}" \
     --use_lm false \
     --lm_config "${lm_config}" \

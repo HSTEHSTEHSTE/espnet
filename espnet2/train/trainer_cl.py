@@ -583,7 +583,7 @@ class Trainer:
             # temporary cl loss computation
             if cl_object is not None:
                 cl_object.update_model_weights(model)
-                cl_loss = 100. * cl_object.penalty(model, data = batch)
+                cl_loss = 10. * cl_object.penalty(model, data = batch)
                 loss += cl_loss
                 stats['cl_loss'] = cl_loss
 
@@ -745,7 +745,7 @@ class Trainer:
             # temporary cl loss computation
             if cl_object is not None:
                 cl_object.update_model_weights(model)
-                cl_loss = 100. * cl_object.penalty(model, data = batch)
+                cl_loss = 10. * cl_object.penalty(model, data = batch)
                 stats['loss'] += cl_loss
                 stats['cl_loss'] = cl_loss
 

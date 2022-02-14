@@ -13,7 +13,7 @@ set -o pipefail
 # cl_test_sets='eval_assamese'
 train_set=train_assamese
 valid_set=dev_assamese
-test_sets=eval_cantonese
+test_sets=eval_assamese
 cl_train_sets='train_cantonese'
 cl_valid_sets='dev_cantonese'
 cl_test_sets='eval_cantonese'
@@ -41,8 +41,8 @@ nlsyms_txt=data/nlsym.txt
     --cl_asr_stats_dir "exp_assamese_cantonese_wca/cl_asr_stats_raw_car" \
     --expdir "exp_assamese_cantonese_wca" \
     --dumpdir "dump_cantonese" \
-    --stage 11 \
-    --stop_stage 11 \
+    --stage 12 \
+    --stop_stage 13 \
     --lang assamese_cantonese \
     --local_data_opts "--langs ${langs} --recog ${recog}" \
     --use_lm false \

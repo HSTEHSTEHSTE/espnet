@@ -35,8 +35,8 @@ nlsyms_txt=data/nlsym.txt
     --cl_asr_stats_dir "exp_assamese_bengali_ewc/cl_asr_stats_raw_car" \
     --expdir "exp_assamese_bengali_ewc" \
     --dumpdir "dump_bengali" \
-    --stage 11 \
-    --stop_stage 11 \
+    --stage 12 \
+    --stop_stage 13 \
     --lang assamese_bengali \
     --local_data_opts "--langs ${langs} --recog ${recog}" \
     --use_lm false \

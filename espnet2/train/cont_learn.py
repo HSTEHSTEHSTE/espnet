@@ -71,21 +71,26 @@ class CL(object):
 
     def penalty(self, model: nn.Module, data = None):
         loss = 0
-
+        total_count = 0
+        norm_power = .2
+        pn = 2
         if self.type == 'wca':
             for n, p in model.named_parameters():
-                _loss = (p - self._means[n]) ** 2
+                _loss = 10. * torch.pow(torch.abs(p - self._means[n]) + to_device(torch.Tensor([.0000000001]), "cuda" if self.num_gpu > 0 else "cpu"), norm_power)
                 loss += _loss.sum()
+                total_count += torch.numel(p)
 
         if self.type == 'ewc':
             for n, p in model.named_parameters():
-                _loss = self._precision_matrices[n] * (p - self._means[n]) ** 2
+                _loss = 1000 * self._precision_matrices[n] * torch.pow(torch.abs(p - self._means[n]) + to_device(torch.Tensor([.0000000001]), "cuda" if self.num_gpu > 0 else "cpu"), norm_power)
                 loss += _loss.sum()
+                total_count += torch.numel(p)
 
         if self.type == 'lwf':
             self.model.train()
             retval = self.model(**data)
             loss, stats, weight = retval
 
-        logging.warn(loss)
+        loss = torch.div(loss, total_count)
+        # logging.warn(loss)
         return loss
